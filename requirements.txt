@@ -1,2 +1,2 @@
-tuya-connector-python==0.13.0
-python-dotenv==1.0.0
+tuya-connector-python==0.1.2
+python-dotenv==1.0.1
