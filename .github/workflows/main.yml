@@ -1,7 +1,7 @@
 name: Tuya Energy Logger
 on:
   schedule:
-    # Run every 5 minutes
+    # Run every 1 Hour
     - cron: '0 */1 * * *'
   workflow_dispatch:  # Allow manual triggering
 jobs:
