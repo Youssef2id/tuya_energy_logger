@@ -1,8 +1,20 @@
-# Energy Data
+# Energy Consumption Dashboard
 
-This directory contains energy consumption data from your Tuya smart meter.
+## 📊 Consumption Overview
 
-## Data Structure
+**Latest Reading:** 460.86 kWh at 2025-07-06 15:07:40 UTC  
+**Total Consumption:** 1.28 kWh  
+**Monitoring Period:** 1 months  
+
+## 📈 Yearly Consumption Trends
+
+![Yearly Consumption](graphs/yearly_consumption.png)
+
+## 📅 Daily Consumption (Current Month)
+
+![Daily Consumption](graphs/daily_consumption_2025-07.png)
+
+## 📋 Data Structure
 
 ### Daily Data (`daily/`)
 - Individual CSV files for each day: `energy_YYYY-MM-DD.csv`
@@ -14,12 +26,16 @@ This directory contains energy consumption data from your Tuya smart meter.
 - Contains daily summaries and statistics
 - Updated automatically as new data arrives
 
+### Graphs (`graphs/`)
+- `yearly_consumption.png`: Monthly consumption trends
+- `daily_consumption_YYYY-MM.png`: Daily consumption for each month
+
 ### Latest Reading (`latest_reading.json`)
 - Always contains the most recent energy reading
 - Updated every hour
 - Easy to parse for current status
 
-## Data Columns
+## 📊 Data Columns
 
 **Daily Files:**
 - `timestamp`: Full datetime in UTC
@@ -37,8 +53,13 @@ This directory contains energy consumption data from your Tuya smart meter.
 - `last_updated`: When the data was last updated
 - `readings_count`: Number of readings for that day
 
-## Automated Collection
+## 🔄 Automated Collection
 
 Data is automatically collected every hour using GitHub Actions.
 
-Last updated: 2025-07-06 15:00:45 UTC
+## 📈 Consumption Calculation
+
+- **Monthly Consumption**: Difference between last reading of the month and first reading of the month
+- **Daily Consumption**: Difference between last reading of the day and last reading of the previous day
+
+Last updated: 2025-07-06 15:07:41 UTC
