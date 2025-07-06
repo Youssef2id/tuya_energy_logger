@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """
-Tuya Smart Meter Energy Logger - GitHub Storage
+Tuya Smart Meter Energy Logger - GitHub Storage with Graphs
 Logs forward_energy_total to CSV files in GitHub repository
-Completely free solution using GitHub Actions and repository storage
+Generates consumption graphs and embeds them in README.md
 """
 
 import os
 import csv
 import json
-from datetime import datetime, timezone
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from tuya_connector import TuyaOpenAPI
 from dotenv import load_dotenv
+import pandas as pd
+from collections import defaultdict
 
 # Load environment variables
 load_dotenv()
@@ -26,12 +30,14 @@ API_ENDPOINT = os.getenv("TUYA_API_ENDPOINT", "https://openapi.tuyaeu.com")
 DATA_DIR = Path("data")
 DAILY_DATA_DIR = DATA_DIR / "daily"
 MONTHLY_DATA_DIR = DATA_DIR / "monthly"
+GRAPHS_DIR = DATA_DIR / "graphs"
 
 def ensure_directories():
     """Create necessary directories if they don't exist"""
     DATA_DIR.mkdir(exist_ok=True)
     DAILY_DATA_DIR.mkdir(exist_ok=True)
     MONTHLY_DATA_DIR.mkdir(exist_ok=True)
+    GRAPHS_DIR.mkdir(exist_ok=True)
 
 def get_tuya_energy_data():
     """Get forward_energy_total from Tuya smart meter"""
@@ -190,15 +196,260 @@ def create_latest_reading_file(energy_data):
     
     print(f"📌 Latest reading saved: {latest_file}")
 
+def get_monthly_consumption_data():
+    """Calculate monthly consumption from daily data"""
+    monthly_consumption = {}
+    
+    # Get all daily files
+    daily_files = list(DAILY_DATA_DIR.glob("energy_*.csv"))
+    
+    if not daily_files:
+        print("⚠️  No daily data files found")
+        return monthly_consumption
+    
+    # Group files by month
+    monthly_files = defaultdict(list)
+    for file in daily_files:
+        date_str = file.stem.replace("energy_", "")
+        try:
+            date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+            year_month = date_obj.strftime("%Y-%m")
+            monthly_files[year_month].append((date_obj, file))
+        except ValueError:
+            continue
+    
+    # Calculate consumption for each month
+    for year_month, files in monthly_files.items():
+        files.sort(key=lambda x: x[0])  # Sort by date
+        
+        # Get first and last day's data
+        first_day_file = files[0][1]
+        last_day_file = files[-1][1]
+        
+        try:
+            # Read first day's first reading
+            with open(first_day_file, 'r') as f:
+                reader = csv.DictReader(f)
+                first_reading = next(reader)
+                month_start_energy = float(first_reading['forward_energy_total_kwh'])
+            
+            # Read last day's last reading
+            with open(last_day_file, 'r') as f:
+                reader = csv.DictReader(f)
+                last_reading = None
+                for row in reader:
+                    last_reading = row
+                month_end_energy = float(last_reading['forward_energy_total_kwh'])
+            
+            # Calculate consumption
+            consumption = month_end_energy - month_start_energy
+            monthly_consumption[year_month] = consumption
+            
+            print(f"📅 {year_month}: {consumption:.2f} kWh consumed")
+            
+        except Exception as e:
+            print(f"⚠️  Error processing {year_month}: {str(e)}")
+            continue
+    
+    return monthly_consumption
+
+def get_daily_consumption_data(target_month=None):
+    """Calculate daily consumption for the last month or specified month"""
+    if target_month is None:
+        # Get current month
+        current_date = datetime.now(timezone.utc)
+        target_month = current_date.strftime("%Y-%m")
+    
+    daily_consumption = {}
+    
+    # Get all daily files for the target month
+    daily_files = list(DAILY_DATA_DIR.glob(f"energy_{target_month}-*.csv"))
+    
+    if not daily_files:
+        print(f"⚠️  No daily data files found for {target_month}")
+        return daily_consumption
+    
+    # Sort files by date
+    daily_files.sort()
+    
+    prev_day_last_reading = None
+    
+    for i, file in enumerate(daily_files):
+        date_str = file.stem.replace("energy_", "")
+        
+        try:
+            with open(file, 'r') as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+                
+                if not rows:
+                    continue
+                
+                # Get first and last reading of the day
+                first_reading = float(rows[0]['forward_energy_total_kwh'])
+                last_reading = float(rows[-1]['forward_energy_total_kwh'])
+                
+                # Calculate daily consumption
+                if i == 0:
+                    # For first day, use difference within the day
+                    daily_consumption[date_str] = last_reading - first_reading
+                else:
+                    # Use last reading of previous day
+                    if prev_day_last_reading is not None:
+                        daily_consumption[date_str] = last_reading - prev_day_last_reading
+                    else:
+                        daily_consumption[date_str] = last_reading - first_reading
+                
+                prev_day_last_reading = last_reading
+                
+        except Exception as e:
+            print(f"⚠️  Error processing {date_str}: {str(e)}")
+            continue
+    
+    return daily_consumption
+
+def create_yearly_consumption_graph():
+    """Create yearly consumption graph"""
+    monthly_data = get_monthly_consumption_data()
+    
+    if not monthly_data:
+        print("⚠️  No data available for yearly consumption graph")
+        return None
+    
+    # Prepare data for plotting
+    months = []
+    consumption = []
+    
+    for year_month in sorted(monthly_data.keys()):
+        months.append(datetime.strptime(year_month, "%Y-%m"))
+        consumption.append(monthly_data[year_month])
+    
+    # Create the plot
+    plt.figure(figsize=(12, 6))
+    plt.plot(months, consumption, marker='o', linewidth=2, markersize=8)
+    plt.title('Monthly Energy Consumption', fontsize=16, fontweight='bold')
+    plt.xlabel('Month', fontsize=12)
+    plt.ylabel('Energy Consumption (kWh)', fontsize=12)
+    plt.grid(True, alpha=0.3)
+    
+    # Format x-axis
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    plt.gca().xaxis.set_major_locator(mdates.MonthLocator())
+    plt.xticks(rotation=45)
+    
+    # Add value labels on points
+    for i, (month, cons) in enumerate(zip(months, consumption)):
+        plt.annotate(f'{cons:.1f}', (month, cons), textcoords="offset points", 
+                    xytext=(0,10), ha='center', fontsize=10)
+    
+    plt.tight_layout()
+    
+    # Save the graph
+    graph_file = GRAPHS_DIR / "yearly_consumption.png"
+    plt.savefig(graph_file, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"📈 Yearly consumption graph saved: {graph_file}")
+    return graph_file
+
+def create_daily_consumption_graph():
+    """Create daily consumption graph for the last month"""
+    current_date = datetime.now(timezone.utc)
+    current_month = current_date.strftime("%Y-%m")
+    
+    daily_data = get_daily_consumption_data(current_month)
+    
+    if not daily_data:
+        print(f"⚠️  No data available for daily consumption graph ({current_month})")
+        return None
+    
+    # Prepare data for plotting
+    dates = []
+    consumption = []
+    
+    for date_str in sorted(daily_data.keys()):
+        dates.append(datetime.strptime(date_str, "%Y-%m-%d"))
+        consumption.append(daily_data[date_str])
+    
+    # Create the plot
+    plt.figure(figsize=(14, 6))
+    plt.bar(dates, consumption, alpha=0.7, color='steelblue')
+    plt.title(f'Daily Energy Consumption - {current_month}', fontsize=16, fontweight='bold')
+    plt.xlabel('Date', fontsize=12)
+    plt.ylabel('Energy Consumption (kWh)', fontsize=12)
+    plt.grid(True, alpha=0.3, axis='y')
+    
+    # Format x-axis
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
+    plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=2))
+    plt.xticks(rotation=45)
+    
+    # Add value labels on bars
+    for i, (date, cons) in enumerate(zip(dates, consumption)):
+        if cons > 0:  # Only show positive values
+            plt.annotate(f'{cons:.1f}', (date, cons), textcoords="offset points", 
+                        xytext=(0,5), ha='center', fontsize=9)
+    
+    plt.tight_layout()
+    
+    # Save the graph
+    graph_file = GRAPHS_DIR / f"daily_consumption_{current_month}.png"
+    plt.savefig(graph_file, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"📊 Daily consumption graph saved: {graph_file}")
+    return graph_file
+
 def create_readme():
-    """Create/update README with data information"""
+    """Create/update README with data information and graphs"""
     readme_file = DATA_DIR / "README.md"
     
-    readme_content = f"""# Energy Data
+    # Generate graphs
+    yearly_graph = create_yearly_consumption_graph()
+    daily_graph = create_daily_consumption_graph()
+    
+    # Get latest reading for summary
+    latest_file = DATA_DIR / "latest_reading.json"
+    latest_reading = "N/A"
+    if latest_file.exists():
+        try:
+            with open(latest_file, 'r') as f:
+                latest_data = json.load(f)
+                latest_reading = latest_data.get("formatted_reading", "N/A")
+        except:
+            pass
+    
+    # Calculate total consumption
+    monthly_data = get_monthly_consumption_data()
+    total_consumption = sum(monthly_data.values()) if monthly_data else 0
+    
+    readme_content = f"""# Energy Consumption Dashboard
 
-This directory contains energy consumption data from your Tuya smart meter.
+## 📊 Consumption Overview
 
-## Data Structure
+**Latest Reading:** {latest_reading}  
+**Total Consumption:** {total_consumption:.2f} kWh  
+**Monitoring Period:** {len(monthly_data)} months  
+
+## 📈 Yearly Consumption Trends
+
+"""
+    
+    # Add yearly graph if available
+    if yearly_graph:
+        readme_content += f"![Yearly Consumption](graphs/{yearly_graph.name})\n\n"
+    else:
+        readme_content += "*Yearly consumption graph will be available once data is collected.*\n\n"
+    
+    readme_content += "## 📅 Daily Consumption (Current Month)\n\n"
+    
+    # Add daily graph if available
+    if daily_graph:
+        readme_content += f"![Daily Consumption](graphs/{daily_graph.name})\n\n"
+    else:
+        readme_content += "*Daily consumption graph will be available once daily data is collected.*\n\n"
+    
+    readme_content += f"""## 📋 Data Structure
 
 ### Daily Data (`daily/`)
 - Individual CSV files for each day: `energy_YYYY-MM-DD.csv`
@@ -210,12 +461,16 @@ This directory contains energy consumption data from your Tuya smart meter.
 - Contains daily summaries and statistics
 - Updated automatically as new data arrives
 
+### Graphs (`graphs/`)
+- `yearly_consumption.png`: Monthly consumption trends
+- `daily_consumption_YYYY-MM.png`: Daily consumption for each month
+
 ### Latest Reading (`latest_reading.json`)
 - Always contains the most recent energy reading
 - Updated every hour
 - Easy to parse for current status
 
-## Data Columns
+## 📊 Data Columns
 
 **Daily Files:**
 - `timestamp`: Full datetime in UTC
@@ -233,9 +488,14 @@ This directory contains energy consumption data from your Tuya smart meter.
 - `last_updated`: When the data was last updated
 - `readings_count`: Number of readings for that day
 
-## Automated Collection
+## 🔄 Automated Collection
 
 Data is automatically collected every hour using GitHub Actions.
+
+## 📈 Consumption Calculation
+
+- **Monthly Consumption**: Difference between last reading of the month and first reading of the month
+- **Daily Consumption**: Difference between last reading of the day and last reading of the previous day
 
 Last updated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
 """
@@ -243,7 +503,7 @@ Last updated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
     with open(readme_file, 'w') as f:
         f.write(readme_content)
     
-    print(f"📖 README updated: {readme_file}")
+    print(f"📖 README updated with graphs: {readme_file}")
 
 def main():
     """Main execution function"""
@@ -274,7 +534,7 @@ def main():
         # Create latest reading file
         create_latest_reading_file(energy_data)
         
-        # Update README
+        # Create/update README with graphs
         create_readme()
         
         print("\n🎉 Energy logging completed successfully!")
