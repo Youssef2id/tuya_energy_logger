@@ -1,3 +1,4 @@
 timestamp,date,time,forward_energy_total_kwh,hour,day_of_week,unix_timestamp
 2025-07-07 00:45:22 UTC,2025-07-07,00:45:22,463.58,0,Monday,1751849122
 2025-07-07 02:47:21 UTC,2025-07-07,02:47:21,463.8,2,Monday,1751856441
+2025-07-07 03:48:16 UTC,2025-07-07,03:48:16,463.87,3,Monday,1751860096
