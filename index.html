@@ -249,7 +249,7 @@
                 const content = JSON.parse(atob(data.content));
                 
                 document.getElementById('currentReading').textContent = content.forward_energy_total_kwh.toFixed(1);
-                document.getElementById('lastUpdated').textContent = new Date(content.timestamp).toLocaleTimeString();
+                document.getElementById('lastUpdated').textContent = new Date(content.timestamp);
                 
                 // Calculate daily usage (this is a simplified calculation)
                 // In a real implementation, you'd compare with yesterday's final reading
@@ -493,6 +493,8 @@
                             
                             let monthlyTotal = 0;
                             let lastReading = 0;
+
+                            console.log(lines);
                             
                             for (let j = 1; j < lines.length; j++) {
                                 const values = lines[j].split(',');
@@ -569,31 +571,32 @@
 
         async function calculateMonthlyUsage() {
             try {
-                const currentMonth = new Date().toISOString().slice(0, 7);
-                const response = await fetch(`${GITHUB_API_BASE}/monthly/energy_summary_${currentMonth}.csv`);
+            const currentMonth = new Date().toISOString().slice(0, 7);
+            const response = await fetch(`${GITHUB_API_BASE}/monthly/energy_summary_${currentMonth}.csv`);
+            
+            if (response.ok) {
+                const data = await response.json();
+                const csvContent = atob(data.content);
+                const lines = csvContent.trim().split('\n');
                 
-                if (response.ok) {
-                    const data = await response.json();
-                    const csvContent = atob(data.content);
-                    const lines = csvContent.trim().split('\n');
-                    
-                    let monthlyTotal = 0;
-                    for (let i = 1; i < lines.length; i++) {
-                        const values = lines[i].split(',');
-                        const dailyReading = parseFloat(values[2]);
-                        if (!isNaN(dailyReading)) {
-                            monthlyTotal += dailyReading;
-                        }
-                    }
-                    
-                    document.getElementById('monthlyUsage').textContent = monthlyTotal.toFixed(1);
+                if (lines.length > 2) {
+                // Use first and last day's readings
+                const firstLine = lines[1].split(',');
+                const lastLine = lines[lines.length - 1].split(',');
+                const firstReading = parseFloat(firstLine[2]);
+                const lastReading = parseFloat(lastLine[2]);
+                const monthlyTotal = lastReading - firstReading;
+                document.getElementById('monthlyUsage').textContent = (monthlyTotal > 0 ? monthlyTotal : 0).toFixed(1);
                 } else {
-                    // Fallback: calculate from daily files
-                    await calculateMonthlyFromDailyFiles();
-                }
-            } catch (error) {
-                console.error('Error calculating monthly usage:', error);
                 document.getElementById('monthlyUsage').textContent = '0.0';
+                }
+            } else {
+                // Fallback: calculate from daily files
+                await calculateMonthlyFromDailyFiles();
+            }
+            } catch (error) {
+            console.error('Error calculating monthly usage:', error);
+            document.getElementById('monthlyUsage').textContent = '0.0';
             }
         }
 
