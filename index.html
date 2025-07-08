@@ -389,6 +389,7 @@
             const labels = energyData.map(d => d.time);
             const readings = energyData.map(d => d.reading);
             
+            energyChart.config.type = 'line'
             energyChart.data.labels = labels;
             energyChart.data.datasets[0].data = readings;
             energyChart.update();
@@ -464,11 +465,13 @@
                 
                 // Update chart with weekly data
                 const labels = weeklyData.map(d => d.time);
-                const readings = weeklyData.map(d => d.reading);
-                
+                const readings = weeklyData.map(d => d.usage);
+                energyChart.config.type = 'bar';
                 energyChart.data.labels = labels;
                 energyChart.data.datasets[0].data = readings;
-                energyChart.data.datasets[0].label = 'Daily Final Reading (kWh)';
+                energyChart.data.datasets[0].label = 'Daily Consumption (kWh)';
+                energyChart.data.datasets[0].backgroundColor = 'rgba(102, 126, 234, 0.5)';
+                energyChart.data.datasets[0].borderColor = '#667eea';
                 energyChart.update();
                 
             } catch (error) {
@@ -477,79 +480,81 @@
         }
 
         async function showMonthlyChart() {
+    try {
+        const monthlyData = [];
+        const currentDate = new Date();
+
+        // Get last 5 months plus current month (total 6 months including current)
+        for (let i = 4; i >= -1; i--) {
+            const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
+            const monthStr = date.toISOString().slice(0, 7);
+
+            // Only fetch data for July 2025 and later (since files before July don't exist)
+            if (monthStr < '2025-07') {
+                monthlyData.push({
+                    time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+                    reading: 0,
+                    usage: 0
+                });
+                continue;
+            }
             try {
-                const monthlyData = [];
-                const currentDate = new Date();
+                const response = await fetch(`${GITHUB_API_BASE}/monthly/energy_summary_${monthStr}.csv`);
+                if (response.ok) {
+                    const data = await response.json();
+                    const csvContent = atob(data.content);
+                    const lines = csvContent.trim().split('\n');
 
-                // Get last 5 months plus current month (total 6 months including current)
-                for (let i = 4; i >= -1; i--) {
-                    const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
-                    const monthStr = date.toISOString().slice(0, 7);
-                    if (i >= 1) {
-                        monthlyData.push({
-                            time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-                            reading: 0,
-                            usage: 0
-                        });
-                        continue;
+                    let firstReading = null;
+                    let lastReading = null;
+
+                    if (lines.length > 2) {
+                        const firstLine = lines[1].split(',');
+                        const lastLine = lines[lines.length - 1].split(',');
+                        firstReading = parseFloat(firstLine[2]);
+                        lastReading = parseFloat(lastLine[2]);
                     }
-                    try {
-                        const response = await fetch(`${GITHUB_API_BASE}/monthly/energy_summary_${monthStr}.csv`);
-                        if (response.ok) {
-                            const data = await response.json();
-                            const csvContent = atob(data.content);
-                            const lines = csvContent.trim().split('\n');
 
-                            let firstReading = null;
-                            let lastReading = null;
-
-                            if (lines.length > 2) {
-                                const firstLine = lines[1].split(',');
-                                const lastLine = lines[lines.length - 1].split(',');
-                                firstReading = parseFloat(firstLine[2]);
-                                lastReading = parseFloat(lastLine[2]);
-                            }
-
-                            let monthlyTotal = 0;
-                            if (firstReading !== null && lastReading !== null) {
-                                monthlyTotal = lastReading - firstReading;
-                            }
-
-                            monthlyData.push({
-                                time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-                                reading: lastReading !== null ? lastReading : 0,
-                                usage: monthlyTotal > 0 ? monthlyTotal : 0
-                            });
-                        } else {
-                            monthlyData.push({
-                                time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-                                reading: 0,
-                                usage: 0
-                            });
-                        }
-                    } catch (error) {
-                        monthlyData.push({
-                            time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-                            reading: 0,
-                            usage: 0
-                        });
+                    let monthlyTotal = 0;
+                    if (firstReading !== null && lastReading !== null) {
+                        monthlyTotal = lastReading - firstReading;
                     }
+
+                    monthlyData.push({
+                        time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+                        reading: lastReading !== null ? lastReading : 0,
+                        usage: monthlyTotal > 0 ? monthlyTotal : 0
+                    });
+                } else {
+                    monthlyData.push({
+                        time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+                        reading: 0,
+                        usage: 0
+                    });
                 }
-
-                // Update chart with monthly data as bar chart
-                energyChart.config.type = 'bar';
-                energyChart.data.labels = monthlyData.map(d => d.time);
-                energyChart.data.datasets[0].data = monthlyData.map(d => d.reading);
-                energyChart.data.datasets[0].label = 'Monthly Final Reading (kWh)';
-                energyChart.data.datasets[0].backgroundColor = 'rgba(102, 126, 234, 0.5)';
-                energyChart.data.datasets[0].borderColor = '#667eea';
-                energyChart.data.datasets[0].fill = false;
-                energyChart.update();
-
             } catch (error) {
-                console.error('Error loading monthly data:', error);
+                monthlyData.push({
+                    time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+                    reading: 0,
+                    usage: 0
+                });
             }
         }
+
+        // Update chart with monthly data as bar chart (moved outside the loop)
+        energyChart.config.type = 'bar';
+        energyChart.data.labels = monthlyData.map(d => d.time);
+        energyChart.data.datasets[0].data = monthlyData.map(d => d.usage);
+        energyChart.data.datasets[0].label = 'Monthly Consumption (kWh)';
+        energyChart.data.datasets[0].backgroundColor = 'rgba(102, 126, 234, 0.5)';
+        energyChart.data.datasets[0].borderColor = '#667eea';
+        energyChart.data.datasets[0].fill = false;
+        energyChart.update();
+
+    } catch (error) {
+        console.error('Error loading monthly data:', error);
+    }
+}
 
         async function calculateDailyUsage(currentReading) {
             try {
