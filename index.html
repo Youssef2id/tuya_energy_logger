@@ -247,10 +247,12 @@
                 const response = await fetch(`${GITHUB_API_BASE}/latest_reading.json`);
                 const data = await response.json();
                 const content = JSON.parse(atob(data.content));
+                const date = new Date(content.timestamp);
+                const timeString = date.toTimeString().split(' ')[0];
                 
                 document.getElementById('currentReading').textContent = content.forward_energy_total_kwh.toFixed(1);
-                document.getElementById('lastUpdated').textContent = new Date(content.timestamp);
-                
+                document.getElementById('lastUpdated').textContent = timeString;
+
                 // Calculate daily usage (this is a simplified calculation)
                 // In a real implementation, you'd compare with yesterday's final reading
                 await calculateDailyUsage(content.forward_energy_total_kwh);
@@ -478,43 +480,54 @@
             try {
                 const monthlyData = [];
                 const currentDate = new Date();
-                
-                // Get last 6 months
-                for (let i = 5; i >= 0; i--) {
+
+                // Get last 5 months plus current month (total 6 months including current)
+                for (let i = 4; i >= -1; i--) {
                     const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
                     const monthStr = date.toISOString().slice(0, 7);
-                    
+                    if (i >= 1) {
+                        monthlyData.push({
+                            time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+                            reading: 0,
+                            usage: 0
+                        });
+                        continue;
+                    }
                     try {
                         const response = await fetch(`${GITHUB_API_BASE}/monthly/energy_summary_${monthStr}.csv`);
                         if (response.ok) {
                             const data = await response.json();
                             const csvContent = atob(data.content);
                             const lines = csvContent.trim().split('\n');
-                            
-                            let monthlyTotal = 0;
-                            let lastReading = 0;
 
-                            console.log(lines);
-                            
-                            for (let j = 1; j < lines.length; j++) {
-                                const values = lines[j].split(',');
-                                const dailyReading = parseFloat(values[2]);
-                                const finalReading = parseFloat(values[2]);
-                                
-                                if (!isNaN(dailyReading)) {
-                                    monthlyTotal += dailyReading;
-                                    lastReading = finalReading;
-                                }
+                            let firstReading = null;
+                            let lastReading = null;
+
+                            if (lines.length > 2) {
+                                const firstLine = lines[1].split(',');
+                                const lastLine = lines[lines.length - 1].split(',');
+                                firstReading = parseFloat(firstLine[2]);
+                                lastReading = parseFloat(lastLine[2]);
                             }
-                            
+
+                            let monthlyTotal = 0;
+                            if (firstReading !== null && lastReading !== null) {
+                                monthlyTotal = lastReading - firstReading;
+                            }
+
                             monthlyData.push({
                                 time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-                                reading: lastReading,
-                                usage: monthlyTotal
+                                reading: lastReading !== null ? lastReading : 0,
+                                usage: monthlyTotal > 0 ? monthlyTotal : 0
+                            });
+                        } else {
+                            monthlyData.push({
+                                time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+                                reading: 0,
+                                usage: 0
                             });
                         }
                     } catch (error) {
-                        // Add placeholder for missing months
                         monthlyData.push({
                             time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
                             reading: 0,
@@ -522,16 +535,17 @@
                         });
                     }
                 }
-                
-                // Update chart with monthly data
-                const labels = monthlyData.map(d => d.time);
-                const readings = monthlyData.map(d => d.reading);
-                
-                energyChart.data.labels = labels;
-                energyChart.data.datasets[0].data = readings;
-                energyChart.data.datasets[0].label = 'Monthly Total Usage (kWh)';
+
+                // Update chart with monthly data as bar chart
+                energyChart.config.type = 'bar';
+                energyChart.data.labels = monthlyData.map(d => d.time);
+                energyChart.data.datasets[0].data = monthlyData.map(d => d.reading);
+                energyChart.data.datasets[0].label = 'Monthly Final Reading (kWh)';
+                energyChart.data.datasets[0].backgroundColor = 'rgba(102, 126, 234, 0.5)';
+                energyChart.data.datasets[0].borderColor = '#667eea';
+                energyChart.data.datasets[0].fill = false;
                 energyChart.update();
-                
+
             } catch (error) {
                 console.error('Error loading monthly data:', error);
             }
