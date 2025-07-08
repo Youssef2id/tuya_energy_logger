@@ -424,37 +424,52 @@
         async function showWeeklyChart() {
             try {
                 const weeklyData = [];
-                const currentDate = new Date();
-                
-                // Get last 7 days
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+
+                // Collect last 7 days (including today), oldest first
                 for (let i = 6; i >= 0; i--) {
-                    const date = new Date(currentDate);
-                    date.setDate(date.getDate() - i);
+                    const date = new Date(today);
+                    date.setDate(today.getDate() - i);
                     const dateStr = date.toISOString().split('T')[0];
-                    
+
                     try {
                         const response = await fetch(`${GITHUB_API_BASE}/daily/energy_${dateStr}.csv`);
                         if (response.ok) {
                             const data = await response.json();
                             const csvContent = atob(data.content);
                             const lines = csvContent.trim().split('\n');
-                            
-                            if (lines.length > 2) {
+
+                            if (lines.length > 1) {
                                 const firstLine = lines[1].split(',');
                                 const lastLine = lines[lines.length - 1].split(',');
                                 const firstReading = parseFloat(firstLine[3]);
                                 const lastReading = parseFloat(lastLine[3]);
                                 const dailyUsage = lastReading - firstReading;
-                                
+
                                 weeklyData.push({
-                                    time: date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+                                    time: (new Date(date.getTime() - 24 * 60 * 60 * 1000)).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
                                     reading: lastReading,
                                     usage: dailyUsage > 0 ? dailyUsage : 0
                                 });
+                            } else {
+                                // No data for this day
+                                weeklyData.push({
+                                    time: (new Date(date.getTime() - 24 * 60 * 60 * 1000)).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+                                    reading: 0,
+                                    usage: 0
+                                });
                             }
+                        } else {
+                            // No file for this day
+                            weeklyData.push({
+                                time: date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+                                reading: 0,
+                                usage: 0
+                            });
                         }
                     } catch (error) {
-                        // Add placeholder for missing days
+                        // Error fetching this day
                         weeklyData.push({
                             time: date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
                             reading: 0,
@@ -462,10 +477,15 @@
                         });
                     }
                 }
-                
-                // Update chart with weekly data
-                const labels = weeklyData.map(d => d.time);
-                const readings = weeklyData.map(d => d.usage);
+                if (!energyChart.options.plugins) energyChart.options.plugins = {};
+                if (!energyChart.options.plugins.title) energyChart.options.plugins.title = {};
+                energyChart.options.plugins.title.display = true;
+                energyChart.options.plugins.title.text = 'Weekly Energy Consumption';
+
+                // Add "dummy" bars at start and end for margin effect
+                const labels = [''].concat(weeklyData.map(d => d.time)).concat(['']);
+                const readings = [null].concat(weeklyData.map(d => d.usage)).concat([null]);
+
                 energyChart.config.type = 'bar';
                 energyChart.data.labels = labels;
                 energyChart.data.datasets[0].data = readings;
@@ -473,88 +493,116 @@
                 energyChart.data.datasets[0].backgroundColor = 'rgba(102, 126, 234, 0.5)';
                 energyChart.data.datasets[0].borderColor = '#667eea';
                 energyChart.update();
-                
+
             } catch (error) {
                 console.error('Error loading weekly data:', error);
             }
         }
 
         async function showMonthlyChart() {
-    try {
-        const monthlyData = [];
-        const currentDate = new Date();
-
-        // Get last 5 months plus current month (total 6 months including current)
-        for (let i = 4; i >= -1; i--) {
-            const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
-            const monthStr = date.toISOString().slice(0, 7);
-
-            // Only fetch data for July 2025 and later (since files before July don't exist)
-            if (monthStr < '2025-07') {
-                monthlyData.push({
-                    time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-                    reading: 0,
-                    usage: 0
-                });
-                continue;
-            }
+            const monthlyData = [];
             try {
-                const response = await fetch(`${GITHUB_API_BASE}/monthly/energy_summary_${monthStr}.csv`);
-                if (response.ok) {
-                    const data = await response.json();
-                    const csvContent = atob(data.content);
-                    const lines = csvContent.trim().split('\n');
+                const currentDate = new Date();
 
-                    let firstReading = null;
-                    let lastReading = null;
+                // Get last 5 months plus current month (total 6 months including current)
+                for (let i = 4; i >= -1; i--) {
+                    const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
+                    const monthStr = date.toISOString().slice(0, 7);
 
-                    if (lines.length > 2) {
-                        const firstLine = lines[1].split(',');
-                        const lastLine = lines[lines.length - 1].split(',');
-                        firstReading = parseFloat(firstLine[2]);
-                        lastReading = parseFloat(lastLine[2]);
+                    // Only fetch data for July 2025 and later (since files before July don't exist)
+                    if (monthStr < '2025-07') {
+                        monthlyData.push({
+                            time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+                            reading: 0,
+                            usage: 0
+                        });
+                        continue;
                     }
+                    try {
+                        const response = await fetch(`${GITHUB_API_BASE}/monthly/energy_summary_${monthStr}.csv`);
+                        if (response.ok) {
+                            const data = await response.json();
+                            const csvContent = atob(data.content);
+                            const lines = csvContent.trim().split('\n');
 
-                    let monthlyTotal = 0;
-                    if (firstReading !== null && lastReading !== null) {
-                        monthlyTotal = lastReading - firstReading;
+                            let firstReading = null;
+                            let lastReading = null;
+
+                            if (lines.length > 2) {
+                                const firstLine = lines[1].split(',');
+                                const lastLine = lines[lines.length - 1].split(',');
+                                firstReading = parseFloat(firstLine[2]);
+                                lastReading = parseFloat(lastLine[2]);
+                            }
+
+                            let monthlyTotal = 0;
+                            if (firstReading !== null && lastReading !== null) {
+                                monthlyTotal = lastReading - firstReading;
+                            }
+
+                            monthlyData.push({
+                                time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+                                reading: lastReading !== null ? lastReading : 0,
+                                usage: monthlyTotal > 0 ? monthlyTotal : 0
+                            });
+                        } else {
+                            monthlyData.push({
+                                time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+                                reading: 0,
+                                usage: 0
+                            });
+                        }
+                    } catch (error) {
+                        monthlyData.push({
+                            time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+                            reading: 0,
+                            usage: 0
+                        });
                     }
-
-                    monthlyData.push({
-                        time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-                        reading: lastReading !== null ? lastReading : 0,
-                        usage: monthlyTotal > 0 ? monthlyTotal : 0
-                    });
-                } else {
-                    monthlyData.push({
-                        time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-                        reading: 0,
-                        usage: 0
-                    });
                 }
+
+                // Add dummy bars at start and end for margin effect
+                const labels = [''].concat(monthlyData.map(d => d.time)).concat(['']);
+                const usages = [null].concat(monthlyData.map(d => d.usage)).concat([null]);
+
+                energyChart.config.type = 'bar';
+                energyChart.data.labels = labels;
+                energyChart.data.datasets[0].data = usages;
+                energyChart.data.datasets[0].label = 'Monthly Consumption (kWh)';
+                energyChart.data.datasets[0].backgroundColor = 'rgba(102, 126, 234, 0.5)';
+                energyChart.data.datasets[0].borderColor = '#667eea';
+                energyChart.data.datasets[0].fill = false;
+
+                // Set chart title
+                if (!energyChart.options.plugins) energyChart.options.plugins = {};
+                if (!energyChart.options.plugins.title) energyChart.options.plugins.title = {};
+                energyChart.options.plugins.title.display = true;
+                energyChart.options.plugins.title.text = 'Monthly Energy Consumption';
+
+                energyChart.update();
+
             } catch (error) {
-                monthlyData.push({
-                    time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-                    reading: 0,
-                    usage: 0
-                });
+                console.error('Error loading monthly data:', error);
             }
+
+            // Update chart with monthly data as bar chart (moved outside the loop)
+            energyChart.config.type = 'bar';
+            energyChart.data.labels = monthlyData.map(d => d.time);
+            energyChart.data.datasets[0].data = monthlyData.map(d => d.usage);
+            energyChart.data.datasets[0].label = 'Monthly Consumption (kWh)';
+            energyChart.data.datasets[0].backgroundColor = 'rgba(102, 126, 234, 0.5)';
+            energyChart.data.datasets[0].borderColor = '#667eea';
+            energyChart.data.datasets[0].fill = false;
+
+            // Set chart title again (in case chart is updated here)
+            if (!energyChart.options.plugins) energyChart.options.plugins = {};
+            if (!energyChart.options.plugins.title) energyChart.options.plugins.title = {};
+            energyChart.options.plugins.title.display = true;
+            energyChart.options.plugins.title.text = 'Monthly Energy Consumption';
+
+            energyChart.update();
         }
 
-        // Update chart with monthly data as bar chart (moved outside the loop)
-        energyChart.config.type = 'bar';
-        energyChart.data.labels = monthlyData.map(d => d.time);
-        energyChart.data.datasets[0].data = monthlyData.map(d => d.usage);
-        energyChart.data.datasets[0].label = 'Monthly Consumption (kWh)';
-        energyChart.data.datasets[0].backgroundColor = 'rgba(102, 126, 234, 0.5)';
-        energyChart.data.datasets[0].borderColor = '#667eea';
-        energyChart.data.datasets[0].fill = false;
-        energyChart.update();
-
-    } catch (error) {
-        console.error('Error loading monthly data:', error);
-    }
-}
 
         async function calculateDailyUsage(currentReading) {
             try {
