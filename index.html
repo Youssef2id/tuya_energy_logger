@@ -232,7 +232,7 @@
         let energyData = [];
         
         // GitHub repository configuration
-        const GITHUB_REPO = 'Youssef2id/tuya_energy_logger'; // Replace with your repo
+        const GITHUB_REPO = 'Youssef2id/tuya_energy_logger'; // Your actual repo
         const GITHUB_API_BASE = `https://api.github.com/repos/${GITHUB_REPO}/contents/data`;
         
         // Initialize dashboard
@@ -253,7 +253,7 @@
                 
                 // Calculate daily usage (this is a simplified calculation)
                 // In a real implementation, you'd compare with yesterday's final reading
-                calculateDailyUsage(content.forward_energy_total_kwh);
+                await calculateDailyUsage(content.forward_energy_total_kwh);
                 
             } catch (error) {
                 console.error('Error loading latest reading:', error);
@@ -263,26 +263,29 @@
 
         async function loadRecentData() {
             try {
-                // Get today's date
+                // Try to load today's data first
                 const today = new Date().toISOString().split('T')[0];
-                const response = await fetch(`${GITHUB_API_BASE}/daily/energy_${today}.csv`);
+                let response = await fetch(`${GITHUB_API_BASE}/daily/energy_${today}.csv`);
                 
-                if (response.ok) {
-                    const data = await response.json();
-                    const csvContent = atob(data.content);
-                    parseCSVData(csvContent);
-                } else {
+                if (!response.ok) {
                     // If today's file doesn't exist, try yesterday
                     const yesterday = new Date();
                     yesterday.setDate(yesterday.getDate() - 1);
                     const yesterdayStr = yesterday.toISOString().split('T')[0];
                     
-                    const yesterdayResponse = await fetch(`${GITHUB_API_BASE}/daily/energy_${yesterdayStr}.csv`);
-                    if (yesterdayResponse.ok) {
-                        const data = await yesterdayResponse.json();
-                        const csvContent = atob(data.content);
-                        parseCSVData(csvContent);
-                    }
+                    response = await fetch(`${GITHUB_API_BASE}/daily/energy_${yesterdayStr}.csv`);
+                }
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const csvContent = atob(data.content);
+                    const parsedData = parseCSVData(csvContent);
+                    energyData = parsedData;
+                    updateDataTable(parsedData);
+                    updateChart();
+                } else {
+                    console.warn('No recent daily data found');
+                    document.getElementById('tableLoading').textContent = 'No recent data available';
                 }
             } catch (error) {
                 console.error('Error loading recent data:', error);
@@ -303,14 +306,14 @@
                         date: values[1],
                         time: values[2],
                         reading: parseFloat(values[3]),
-                        hour: parseInt(values[4])
+                        hour: parseInt(values[4]),
+                        dayOfWeek: values[5],
+                        unixTimestamp: parseInt(values[6])
                     });
                 }
             }
             
-            energyData = data;
-            updateDataTable(data);
-            updateChart();
+            return data;
         }
 
         function updateDataTable(data) {
@@ -389,26 +392,254 @@
             energyChart.update();
         }
 
-        function showChart(period) {
+        async function showChart(period) {
             // Update button styles
             document.querySelectorAll('.control-btn').forEach(btn => {
                 btn.classList.remove('active');
             });
             event.target.classList.add('active');
             
-            // This is where you'd implement different time period views
-            // For now, we'll just update the existing chart
+            // Load and display data based on selected period
+            switch(period) {
+                case 'daily':
+                    await showDailyChart();
+                    break;
+                case 'weekly':
+                    await showWeeklyChart();
+                    break;
+                case 'monthly':
+                    await showMonthlyChart();
+                    break;
+            }
+        }
+
+        async function showDailyChart() {
+            // Use existing energyData for daily view
             updateChart();
         }
 
-        function calculateDailyUsage(currentReading) {
-            // This is a simplified calculation
-            // In a real implementation, you'd store the previous day's final reading
-            const estimatedDailyUsage = (Math.random() * 20 + 5).toFixed(1); // Mock data
-            const estimatedMonthlyUsage = (Math.random() * 400 + 100).toFixed(1); // Mock data
-            
-            document.getElementById('dailyUsage').textContent = estimatedDailyUsage;
-            document.getElementById('monthlyUsage').textContent = estimatedMonthlyUsage;
+        async function showWeeklyChart() {
+            try {
+                const weeklyData = [];
+                const currentDate = new Date();
+                
+                // Get last 7 days
+                for (let i = 6; i >= 0; i--) {
+                    const date = new Date(currentDate);
+                    date.setDate(date.getDate() - i);
+                    const dateStr = date.toISOString().split('T')[0];
+                    
+                    try {
+                        const response = await fetch(`${GITHUB_API_BASE}/daily/energy_${dateStr}.csv`);
+                        if (response.ok) {
+                            const data = await response.json();
+                            const csvContent = atob(data.content);
+                            const lines = csvContent.trim().split('\n');
+                            
+                            if (lines.length > 2) {
+                                const firstLine = lines[1].split(',');
+                                const lastLine = lines[lines.length - 1].split(',');
+                                const firstReading = parseFloat(firstLine[3]);
+                                const lastReading = parseFloat(lastLine[3]);
+                                const dailyUsage = lastReading - firstReading;
+                                
+                                weeklyData.push({
+                                    time: date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+                                    reading: lastReading,
+                                    usage: dailyUsage > 0 ? dailyUsage : 0
+                                });
+                            }
+                        }
+                    } catch (error) {
+                        // Add placeholder for missing days
+                        weeklyData.push({
+                            time: date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+                            reading: 0,
+                            usage: 0
+                        });
+                    }
+                }
+                
+                // Update chart with weekly data
+                const labels = weeklyData.map(d => d.time);
+                const readings = weeklyData.map(d => d.reading);
+                
+                energyChart.data.labels = labels;
+                energyChart.data.datasets[0].data = readings;
+                energyChart.data.datasets[0].label = 'Daily Final Reading (kWh)';
+                energyChart.update();
+                
+            } catch (error) {
+                console.error('Error loading weekly data:', error);
+            }
+        }
+
+        async function showMonthlyChart() {
+            try {
+                const monthlyData = [];
+                const currentDate = new Date();
+                
+                // Get last 6 months
+                for (let i = 5; i >= 0; i--) {
+                    const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
+                    const monthStr = date.toISOString().slice(0, 7);
+                    
+                    try {
+                        const response = await fetch(`${GITHUB_API_BASE}/monthly/energy_summary_${monthStr}.csv`);
+                        if (response.ok) {
+                            const data = await response.json();
+                            const csvContent = atob(data.content);
+                            const lines = csvContent.trim().split('\n');
+                            
+                            let monthlyTotal = 0;
+                            let lastReading = 0;
+                            
+                            for (let j = 1; j < lines.length; j++) {
+                                const values = lines[j].split(',');
+                                const dailyReading = parseFloat(values[2]);
+                                const finalReading = parseFloat(values[2]);
+                                
+                                if (!isNaN(dailyReading)) {
+                                    monthlyTotal += dailyReading;
+                                    lastReading = finalReading;
+                                }
+                            }
+                            
+                            monthlyData.push({
+                                time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+                                reading: lastReading,
+                                usage: monthlyTotal
+                            });
+                        }
+                    } catch (error) {
+                        // Add placeholder for missing months
+                        monthlyData.push({
+                            time: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+                            reading: 0,
+                            usage: 0
+                        });
+                    }
+                }
+                
+                // Update chart with monthly data
+                const labels = monthlyData.map(d => d.time);
+                const readings = monthlyData.map(d => d.reading);
+                
+                energyChart.data.labels = labels;
+                energyChart.data.datasets[0].data = readings;
+                energyChart.data.datasets[0].label = 'Monthly Total Usage (kWh)';
+                energyChart.update();
+                
+            } catch (error) {
+                console.error('Error loading monthly data:', error);
+            }
+        }
+
+        async function calculateDailyUsage(currentReading) {
+            try {
+                // Get yesterday's final reading for daily calculation
+                const yesterday = new Date();
+                yesterday.setDate(yesterday.getDate() - 1);
+                const yesterdayStr = yesterday.toISOString().split('T')[0];
+                
+                const response = await fetch(`${GITHUB_API_BASE}/daily/energy_${yesterdayStr}.csv`);
+                if (response.ok) {
+                    const data = await response.json();
+                    const csvContent = atob(data.content);
+                    const lines = csvContent.trim().split('\n');
+                    
+                    if (lines.length > 1) {
+                        const lastLine = lines[lines.length - 1];
+                        const values = lastLine.split(',');
+                        const yesterdayFinalReading = parseFloat(values[3]);
+                        
+                        const dailyUsage = (currentReading - yesterdayFinalReading).toFixed(1);
+                        document.getElementById('dailyUsage').textContent = dailyUsage > 0 ? dailyUsage : '0.0';
+                    }
+                }
+                
+                // Calculate monthly usage
+                await calculateMonthlyUsage();
+                
+            } catch (error) {
+                console.error('Error calculating daily usage:', error);
+                document.getElementById('dailyUsage').textContent = '0.0';
+            }
+        }
+
+        async function calculateMonthlyUsage() {
+            try {
+                const currentMonth = new Date().toISOString().slice(0, 7);
+                const response = await fetch(`${GITHUB_API_BASE}/monthly/energy_summary_${currentMonth}.csv`);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const csvContent = atob(data.content);
+                    const lines = csvContent.trim().split('\n');
+                    
+                    let monthlyTotal = 0;
+                    for (let i = 1; i < lines.length; i++) {
+                        const values = lines[i].split(',');
+                        const dailyReading = parseFloat(values[2]);
+                        if (!isNaN(dailyReading)) {
+                            monthlyTotal += dailyReading;
+                        }
+                    }
+                    
+                    document.getElementById('monthlyUsage').textContent = monthlyTotal.toFixed(1);
+                } else {
+                    // Fallback: calculate from daily files
+                    await calculateMonthlyFromDailyFiles();
+                }
+            } catch (error) {
+                console.error('Error calculating monthly usage:', error);
+                document.getElementById('monthlyUsage').textContent = '0.0';
+            }
+        }
+
+        async function calculateMonthlyFromDailyFiles() {
+            try {
+                const currentDate = new Date();
+                const currentMonth = currentDate.getMonth();
+                const currentYear = currentDate.getFullYear();
+                let monthlyTotal = 0;
+                
+                // Get all days in current month
+                const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+                
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    
+                    try {
+                        const response = await fetch(`${GITHUB_API_BASE}/daily/energy_${dateStr}.csv`);
+                        if (response.ok) {
+                            const data = await response.json();
+                            const csvContent = atob(data.content);
+                            const lines = csvContent.trim().split('\n');
+                            
+                            if (lines.length > 2) {
+                                const firstLine = lines[1].split(',');
+                                const lastLine = lines[lines.length - 1].split(',');
+                                const firstReading = parseFloat(firstLine[3]);
+                                const lastReading = parseFloat(lastLine[3]);
+                                const dailyUsage = lastReading - firstReading;
+                                
+                                if (dailyUsage > 0) {
+                                    monthlyTotal += dailyUsage;
+                                }
+                            }
+                        }
+                    } catch (dayError) {
+                        // Skip missing days
+                        continue;
+                    }
+                }
+                
+                document.getElementById('monthlyUsage').textContent = monthlyTotal.toFixed(1);
+            } catch (error) {
+                console.error('Error calculating monthly from daily files:', error);
+                document.getElementById('monthlyUsage').textContent = '0.0';
+            }
         }
     </script>
 </body>
