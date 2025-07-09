@@ -2,8 +2,8 @@
 
 ## 📊 Consumption Overview
 
-**Latest Reading:** 469.12 kWh at 2025-07-09 07:11:09 UTC  
-**Total Consumption:** 9.54 kWh  
+**Latest Reading:** 469.18 kWh at 2025-07-09 08:12:36 UTC  
+**Total Consumption:** 9.60 kWh  
 **Monitoring Period:** 1 months  
 
 ## 📈 Yearly Consumption Trends
@@ -62,4 +62,4 @@ Data is automatically collected every hour using GitHub Actions.
 - **Monthly Consumption**: Difference between last reading of the month and first reading of the month
 - **Daily Consumption**: Difference between last reading of the day and last reading of the previous day
 
-Last updated: 2025-07-09 07:11:10 UTC
+Last updated: 2025-07-09 08:12:37 UTC
