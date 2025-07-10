@@ -1,10 +1,10 @@
 {
-  "timestamp": "2025-07-10T18:11:55.408316+00:00",
+  "timestamp": "2025-07-10T19:07:09.485826+00:00",
   "date": "2025-07-10",
-  "time": "18:11:55",
-  "forward_energy_total_kwh": 472.11,
-  "hour": 18,
+  "time": "19:07:09",
+  "forward_energy_total_kwh": 472.4,
+  "hour": 19,
   "day_of_week": "Thursday",
-  "unix_timestamp": 1752171115,
-  "formatted_reading": "472.11 kWh at 2025-07-10 18:11:55 UTC"
+  "unix_timestamp": 1752174429,
+  "formatted_reading": "472.4 kWh at 2025-07-10 19:07:09 UTC"
 }
